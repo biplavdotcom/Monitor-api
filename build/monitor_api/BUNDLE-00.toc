@@ -1,3 +1,0 @@
-([('monitor_api',
-   '/Users/jijashshrestha/Desktop/test/dist/monitor_api',
-   'EXECUTABLE')],)
