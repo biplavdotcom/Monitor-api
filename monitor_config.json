@@ -1,5 +1,5 @@
 {
-    "pdf_folder": "/Users/jijashshrestha/Downloads",
-    "base_output_folder": "/Users/jijashshrestha/Downloads",
-    "log_file": "/Users/jijashshrestha/Downloads/test.txt"
+    "pdf_folder": "/home/bip/monitor_files",
+    "base_output_folder": "/home/bip/monitor_files",
+    "log_file": "/home/bip/monitor_files/test.txt"
 }

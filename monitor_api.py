@@ -120,9 +120,9 @@ except Exception as e:
     print(f"Error getting paths: {str(e)}")
     sys.exit(1)
 
-DOCUMENT_EXTRACT_API_URL = "https://ocr-deployed-646693762709.asia-south1.run.app/extract"
-ENTITY_EXTRACTOR_API_URL = "https://ocr-deployed-646693762709.asia-south1.run.app/classification"
-API_KEY = "mock-api-key"  # Replace with your API key
+DOCUMENT_EXTRACT_API_URL = "http://localhost:8080/extract/"
+ENTITY_EXTRACTOR_API_URL = "http://localhost:8080/classification"
+# API_KEY = "mock-api-key"  # Replace with your API key
 
 # Set up logging
 logging.basicConfig(
@@ -142,22 +142,23 @@ def call_document_extract_api(pdf_path):
     start_time = time.time()
     logger.info(f"Starting Document Extract API call for {pdf_path}")
     
-    headers = {
-        "Authorization": f"Bearer {API_KEY}",
-        "Accept": "application/json"
-    }
+    # headers = {
+    #     "Authorization": f"Bearer {API_KEY}",
+    #     "Accept": "application/json"
+    # }
     
     try:
         with open(pdf_path, "rb") as pdf_file:
-            files = {"file": (os.path.basename(pdf_path), pdf_file, "application/pdf")}
+            files = {"file_list": (os.path.basename(pdf_path), pdf_file, "application/pdf")}
             data = {"prompt": ""}  # Add empty prompt
-            response = requests.post(DOCUMENT_EXTRACT_API_URL, headers=headers, files=files, data=data)
+            response = requests.post(DOCUMENT_EXTRACT_API_URL, files=files, data=data)
             response.raise_for_status()
             response_time = time.time() - start_time
             logger.info(
                 f"Document Extract API call successful for {pdf_path}. "
                 f"Status: {response.status_code}, Response Time: {response_time:.2f}s"
             )
+            logger.info(response.json())
             return response.json()
     except requests.exceptions.RequestException as e:
         response_time = time.time() - start_time
@@ -174,7 +175,7 @@ def call_entity_extractor_api(extracted_data, pdf_path):
     start_time = time.time()
     
     # Get document_id from the document extract response
-    document_id = extracted_data.get("document_id")
+    document_id = extracted_data['data'][0]['document_id']
     if not document_id:
         logger.error(f"No document_id found in response for {pdf_path}")
         return None
@@ -183,13 +184,13 @@ def call_entity_extractor_api(extracted_data, pdf_path):
     api_url = f"{ENTITY_EXTRACTOR_API_URL}/{document_id}"
     logger.info(f"Starting Entity Extractor API call to {api_url}")
     
-    headers = {
-        "Authorization": f"Bearer {API_KEY}",
-        "Accept": "application/json"
-    }
+    # headers = {
+    #     "Authorization": f"Bearer {API_KEY}",
+    #     "Accept": "application/json"
+    # }
     
     try:
-        response = requests.get(api_url, headers=headers)
+        response = requests.get(api_url)
         response.raise_for_status()
         response_time = time.time() - start_time
         logger.info(
