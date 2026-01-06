@@ -123,6 +123,8 @@ except Exception as e:
 DOCUMENT_EXTRACT_API_URL = "http://localhost:8080/extract/"
 ENTITY_EXTRACTOR_API_URL = "http://localhost:8080/classification"
 # API_KEY = "mock-api-key"  # Replace with your API key
+MAPPING_API_URL = "http://localhost:8080/mapping/get-mappings"
+SAP_PURCHASE_API_URL = "http://localhost:8080/sap/PurchaseInvoices"
 
 # Set up logging
 logging.basicConfig(
@@ -151,7 +153,7 @@ def call_document_extract_api(pdf_path):
         with open(pdf_path, "rb") as pdf_file:
             files = {"file_list": (os.path.basename(pdf_path), pdf_file, "application/pdf")}
             data = {"prompt": ""}  # Add empty prompt
-            response = requests.post(DOCUMENT_EXTRACT_API_URL, files=files, data=data)
+            response = requests.post(DOCUMENT_EXTRACT_API_URL, files=files)
             response.raise_for_status()
             response_time = time.time() - start_time
             logger.info(
@@ -171,42 +173,53 @@ def call_document_extract_api(pdf_path):
         return None
 
 # Step 2: Call Entity Extractor API
-def call_entity_extractor_api(extracted_data, pdf_path):
-    start_time = time.time()
+# def call_entity_extractor_api(extracted_data, pdf_path):
+#     start_time = time.time()
     
-    # Get document_id from the document extract response
-    document_id = extracted_data['data'][0]['document_id']
-    if not document_id:
-        logger.error(f"No document_id found in response for {pdf_path}")
-        return None
+#     # Get document_id from the document extract response
+#     document_id = extracted_data['data'][0]['document_id']
+#     if not document_id:
+#         logger.error(f"No document_id found in response for {pdf_path}")
+#         return None
     
-    # Use document_id directly in the path
-    api_url = f"{ENTITY_EXTRACTOR_API_URL}/{document_id}"
-    logger.info(f"Starting Entity Extractor API call to {api_url}")
+#     # Use document_id directly in the path
+#     api_url = f"{ENTITY_EXTRACTOR_API_URL}/{document_id}"
+#     logger.info(f"Starting Entity Extractor API call to {api_url}")
     
-    # headers = {
-    #     "Authorization": f"Bearer {API_KEY}",
-    #     "Accept": "application/json"
-    # }
+#     # headers = { ERROR - Error appending to Excel: 'UoMEntry'
+#     #     "Authorization": f"Bearer {API_KEY}",
+#     #     "Accept": "application/json"
+#     # }
     
-    try:
-        response = requests.get(api_url)
-        response.raise_for_status()
-        response_time = time.time() - start_time
-        logger.info(
-            f"Entity Extractor API call successful. "
-            f"Status: {response.status_code}, Response Time: {response_time:.2f}s"
-        )
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        response_time = time.time() - start_time
-        logger.error(
-            f"Entity Extractor API call failed. "
-            f"Status: {getattr(e.response, 'status_code', 'N/A')}, "
-            f"Response Time: {response_time:.2f}s, Error: {str(e)}"
-        )
-        logger.debug(f"Stack trace: {traceback.format_exc()}")
-        return None
+#     try:
+#         response = requests.get(api_url)
+#         response.raise_for_status()
+#         response_time = time.time() - start_time
+#         logger.info(
+#             f"Entity Extractor API call successful. "
+#             f"Status: {response.status_code}, Response Time: {response_time:.2f}s"
+#         )
+#         return response.json()
+#     except requests.exceptions.RequestException as e:
+#         response_time = time.time() - start_time
+#         logger.error(
+#             f"Entity Extractor API call failed. "
+#             f"Status: {getattr(e.response, 'status_code', 'N/A')}, "
+#             f"Response Time: {response_time:.2f}s, Error: {str(e)}"
+#         )
+#         logger.debug(f"Stack trace: {traceback.format_exc()}")
+#         return None
+
+def map_incoming_data(extracted_data):
+    incoming_doc_id = extracted_data["data"][0]["document_id"]
+    if not incoming_doc_id:
+        logger.error("No document_id found in extracted data for mapping")
+
+    api_url = f"{MAPPING_API_URL}/{incoming_doc_id}"
+    raw_response = requests.get(api_url).json()
+    mapped_data = raw_response['mapped_result']
+    logger.info(mapped_data)
+    return mapped_data
 
 # Step 3: Process a single PDF
 def process_pdf(pdf_path):
@@ -219,28 +232,32 @@ def process_pdf(pdf_path):
         return None
     
     # Call Entity Extractor API
-    entity_extract_response = call_entity_extractor_api(doc_extract_response, pdf_path)
-    if not entity_extract_response:
-        logger.error(f"Skipping {pdf_path} due to Entity Extractor API failure")
-        return None
+    # entity_extract_response = call_entity_extractor_api(doc_extract_response, pdf_path)
+    # if not entity_extract_response:
+    #     logger.error(f"Skipping {pdf_path} due to Entity Extractor API failure")
+    #     return None
     
     # Get classification from response
-    classification = entity_extract_response.get("classification", "").lower()
-    if not classification:
-        logger.error(f"No classification found in response for {pdf_path}")
-        return None
+    # classification = entity_extract_response.get("classification", "").lower()
+    # if not classification:
+    #     logger.error(f"No classification found in response for {pdf_path}")
+    #     return None
+    
+    mapped_response = map_incoming_data(doc_extract_response)
     
     # Add filename to the response data
-    entity_extract_response['file_name'] = os.path.basename(pdf_path)
+    # entity_extract_response['file_name'] = os.path.basename(pdf_path)
+    
     
     # If classification is not ap_invoice or outgoing_payment, set it to other_files
-    if classification not in ['ap_invoice', 'outgoing_payment']:
-        classification = 'other_files'
+    # if classification not in ['ap_invoice', 'outgoing_payment']:
+    #     classification = 'other_files'
     
     # Return the complete API response with classification
     return {
-        "classification": classification,
-        "data": entity_extract_response
+        # "classification": classification,  
+        # "data": entity_extract_response,
+        "mapped_data": mapped_response
     }
 
 # Step 4: Append to Excel
@@ -255,13 +272,29 @@ def append_to_excel(processed_data, base_output_folder):
         daily_folder = os.path.join(base_output_folder, f"excel_output_{today}")
         
         # Get classification and create classification-specific folder
-        classification = processed_data["classification"]
-        classification_folder = os.path.join(daily_folder, classification)
+        # classification = processed_data["classification"]
+        classification_folder = os.path.join(daily_folder, "ap_invoice")
         os.makedirs(classification_folder, exist_ok=True)
         
         # Get the complete API response data
-        api_data = processed_data["data"]
+        api_data = processed_data["mapped_data"]
         
+        # Build all DocumentLines (handle both UoMEntry and UomEntry keys)
+        document_lines = []
+        for line in api_data.get("DocumentLines", []):
+            uom_entry = line.get("UoMEntry") or line.get("UomEntry") or line.get("uomentry")
+            document_lines.append({
+                "ItemCode": line.get("ItemCode", ""),
+                "UoMEntry": uom_entry,
+                "TaxCode": line.get("TaxCode", "")
+            })
+        
+        invoice_data = {
+            "CardCode": api_data.get("CardCode", ""),
+            # "DocDate": api_data.get("DocDate", ""),
+            "DocumentLines": document_lines
+        }
+        post_to_sap(invoice_data)
         # Create a dictionary to store all data
         flattened_data = {}
         
@@ -311,7 +344,7 @@ def append_to_excel(processed_data, base_output_folder):
         df_new = pd.concat([df_new, spacing_rows], ignore_index=True)
         
         # Define output path
-        output_path = os.path.join(classification_folder, f"{classification}_output.xlsx")
+        output_path = os.path.join(classification_folder, "ap_invoice_output.xlsx")
         
         # If Excel file exists, append; otherwise, create new
         if os.path.exists(output_path):
@@ -327,6 +360,18 @@ def append_to_excel(processed_data, base_output_folder):
     except Exception as e:
         logger.error(f"Error appending to Excel: {str(e)}")
         logger.debug(f"Stack trace: {traceback.format_exc()}")
+
+def post_to_sap(mapped_data):
+    try:
+        logger.info(f"Posting the following data: {mapped_data}")
+        response = requests.post(SAP_PURCHASE_API_URL, json=mapped_data)
+        response.raise_for_status()
+        logger.info(f"Successfully posted data to SAP. Status: {response.status_code}")
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Failed to post data to SAP. Error: {str(e)}")
+        logger.debug(f"Stack trace: {traceback.format_exc()}")
+        return None
 
 def get_current_day_folder(base_path):
     """Get the current day's folder path"""
@@ -419,6 +464,7 @@ class DynamicFolderHandler(FileSystemEventHandler):
 
         logging.warning(f"Timeout waiting for {file_path} to be ready")
         return False
+    
 
 # Main Workflow
 def main():
