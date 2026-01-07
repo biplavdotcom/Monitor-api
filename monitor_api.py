@@ -120,19 +120,32 @@ except Exception as e:
     print(f"Error getting paths: {str(e)}")
     sys.exit(1)
 
-DOCUMENT_EXTRACT_API_URL = "http://localhost:8080/extract/"
-ENTITY_EXTRACTOR_API_URL = "http://localhost:8080/classification"
+DOCUMENT_EXTRACT_API_URL = "https://ocr-deployed-791795374894.asia-south1.run.app/extract/"
+ENTITY_EXTRACTOR_API_URL = "https://ocr-deployed-791795374894.asia-south1.run.app/classification"
 # API_KEY = "mock-api-key"  # Replace with your API key
-MAPPING_API_URL = "http://localhost:8080/mapping/get-mappings"
-SAP_PURCHASE_API_URL = "http://localhost:8080/sap/PurchaseInvoices"
+MAPPING_API_URL = "https://ocr-deployed-791795374894.asia-south1.run.app/mapping/get-mappings"
+SAP_PURCHASE_API_URL = "https://ocr-deployed-791795374894.asia-south1.run.app/sap/PurchaseInvoices"
 
-# Set up logging
-logging.basicConfig(
-    filename=LOG_FILE,
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
-)
+# Set up logging to both file and console
 logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+# Create formatter
+formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+
+# File handler
+file_handler = logging.FileHandler(LOG_FILE)
+file_handler.setLevel(logging.INFO)
+file_handler.setFormatter(formatter)
+
+# Console handler
+console_handler = logging.StreamHandler(sys.stdout)
+console_handler.setLevel(logging.INFO)
+console_handler.setFormatter(formatter)
+
+# Add both handlers to logger
+logger.addHandler(file_handler)
+logger.addHandler(console_handler)
 
 # Log the configuration
 logger.info(f"PDF Monitor Folder: {PDF_FOLDER_PATH}")
@@ -156,12 +169,20 @@ def call_document_extract_api(pdf_path):
             response = requests.post(DOCUMENT_EXTRACT_API_URL, files=files)
             response.raise_for_status()
             response_time = time.time() - start_time
-            logger.info(
-                f"Document Extract API call successful for {pdf_path}. "
-                f"Status: {response.status_code}, Response Time: {response_time:.2f}s"
-            )
-            logger.info(response.json())
-            return response.json()
+            response_data = response.json()
+            
+            logger.info("\n" + "="*80)
+            logger.info("DOCUMENT EXTRACT API RESPONSE")
+            logger.info("="*80)
+            logger.info(f"File: {os.path.basename(pdf_path)}")
+            logger.info(f"Status: {response.status_code}")
+            logger.info(f"Response Time: {response_time:.2f}s")
+            logger.info("-"*80)
+            logger.info("Extracted Data:")
+            logger.info(json.dumps(response_data, indent=2))
+            logger.info("="*80 + "\n")
+            
+            return response_data
     except requests.exceptions.RequestException as e:
         response_time = time.time() - start_time
         logger.error(
@@ -218,7 +239,15 @@ def map_incoming_data(extracted_data):
     api_url = f"{MAPPING_API_URL}/{incoming_doc_id}"
     raw_response = requests.get(api_url).json()
     mapped_data = raw_response['mapped_result']
-    logger.info(mapped_data)
+    
+    # Log mapped data in a structured, readable format
+    logger.info("="*80)
+    logger.info("MAPPED INVOICE DATA")
+    logger.info("="*80)
+    logger.info(f"Document ID: {incoming_doc_id}")
+    logger.info(json.dumps(mapped_data, indent=2))
+    logger.info("="*80)
+    
     return mapped_data
 
 # Step 3: Process a single PDF
@@ -363,13 +392,56 @@ def append_to_excel(processed_data, base_output_folder):
 
 def post_to_sap(mapped_data):
     try:
-        logger.info(f"Posting the following data: {mapped_data}")
+        # Log the posting request in a structured format
+        logger.info("\n" + "="*80)
+        logger.info("SAP PURCHASE INVOICE POSTING REQUEST")
+        logger.info("="*80)
+        logger.info(f"Vendor (CardCode): {mapped_data.get('CardCode', 'N/A')}")
+        logger.info("-"*80)
+        logger.info("Request Payload:")
+        logger.info(json.dumps(mapped_data, indent=2))
+        
+        # Log vendor details
+        logger.info("-"*80)
+        logger.info("VENDOR INFORMATION:")
+        logger.info(f"  CardCode: {mapped_data.get('CardCode', 'N/A')}")
+        
+        # Log item lines grouped under vendor
+        document_lines = mapped_data.get('DocumentLines', [])
+        if document_lines:
+            logger.info("-"*80)
+            logger.info(f"ITEM LINES (Total: {len(document_lines)}):")
+            for idx, line in enumerate(document_lines, 1):
+                logger.info(f"\n  Item #{idx}:")
+                logger.info(f"    ItemCode:  {line.get('ItemCode', 'N/A')}")
+                logger.info(f"    UoMEntry:  {line.get('UoMEntry', 'N/A')}")
+                logger.info(f"    TaxCode:   {line.get('TaxCode', 'N/A')}")
+        
+        # Make the API call
         response = requests.post(SAP_PURCHASE_API_URL, json=mapped_data)
         response.raise_for_status()
-        logger.info(f"Successfully posted data to SAP. Status: {response.status_code}")
-        return response.json()
+        result = response.json()
+        
+        # Log successful response
+        logger.info("\n" + "="*80)
+        logger.info(f"SAP POSTING RESPONSE - SUCCESS: {response.status_code}")
+        logger.info(f"DocEntry: {result.get('DocEntry', 'N/A')}")
+        logger.info(f"Vendor (CardCode): {mapped_data.get('CardCode', 'N/A')}")
+        logger.info("="*80 + "\n")
+        
+        return result
     except requests.exceptions.RequestException as e:
-        logger.error(f"Failed to post data to SAP. Error: {str(e)}")
+        # Log error in structured format
+        logger.error("\n" + "="*80)
+        logger.error("SAP POSTING RESPONSE - FAILED")
+        logger.error("="*80)
+        logger.error(f"Vendor (CardCode): {mapped_data.get('CardCode', 'N/A')}")
+        logger.error(f"Status Code: {getattr(e.response, 'status_code', 'N/A')}")
+        logger.error(f"Error Message: {str(e)}")
+        logger.error("-"*80)
+        logger.error("Failed Payload:")
+        logger.error(json.dumps(mapped_data, indent=2))
+        logger.error("="*80 + "\n")
         logger.debug(f"Stack trace: {traceback.format_exc()}")
         return None
 
